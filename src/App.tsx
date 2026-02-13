@@ -1,4 +1,4 @@
-import { useState, useEffect, useCallback } from 'react';
+import { useState, useEffect, useCallback, useMemo } from 'react';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
@@ -33,6 +33,35 @@ interface CalculationResult {
   }>;
 }
 
+interface PlanAdjustment {
+  id: string;
+  date: string;
+  amount: number;
+}
+
+interface SavingsPlan {
+  id: string;
+  name: string;
+  deadline: string;
+  targetAmount: number;
+  currentAmount: number;
+  expectedRate: number;
+  adjustments: PlanAdjustment[];
+}
+
+interface PlanMetrics {
+  daysRemaining: number;
+  yearsRemaining: number;
+  futureValueCurrent: number;
+  futureValueAdjustments: number;
+  projectedWithoutRegularSaving: number;
+  fundingGap: number;
+  yearlySaving: number;
+  monthlySaving: number;
+  dailySaving: number;
+  requiredAnnualRate: number | null;
+}
+
 const frequencyOptions = [
   { value: '1', label: '每年' },
   { value: '2', label: '每半年' },
@@ -41,6 +70,141 @@ const frequencyOptions = [
   { value: '52', label: '每周' },
   { value: '365', label: '每天' },
 ];
+
+const createDefaultPlan = (): SavingsPlan => {
+  const nextYear = new Date();
+  nextYear.setFullYear(nextYear.getFullYear() + 1);
+
+  return {
+    id: Date.now().toString(),
+    name: '计划 1',
+    deadline: nextYear.toISOString().slice(0, 10),
+    targetAmount: 300000,
+    currentAmount: 10000,
+    expectedRate: 5,
+    adjustments: [],
+  };
+};
+
+const calculatePlanMetrics = (plan: SavingsPlan): PlanMetrics => {
+  const now = new Date();
+  const today = new Date(now.getFullYear(), now.getMonth(), now.getDate());
+  const deadlineDate = new Date(plan.deadline);
+  const deadline = new Date(deadlineDate.getFullYear(), deadlineDate.getMonth(), deadlineDate.getDate());
+
+  const msPerDay = 24 * 60 * 60 * 1000;
+  const daysRemaining = Math.max(0, Math.ceil((deadline.getTime() - today.getTime()) / msPerDay));
+  const yearsRemaining = daysRemaining / 365;
+  const annualRate = plan.expectedRate / 100;
+
+  if (daysRemaining <= 0) {
+    const projected = plan.currentAmount + plan.adjustments.reduce((sum, adj) => sum + (adj.amount || 0), 0);
+    const gap = Math.max(0, plan.targetAmount - projected);
+    return {
+      daysRemaining,
+      yearsRemaining,
+      futureValueCurrent: projected,
+      futureValueAdjustments: 0,
+      projectedWithoutRegularSaving: projected,
+      fundingGap: gap,
+      yearlySaving: gap,
+      monthlySaving: gap,
+      dailySaving: gap,
+      requiredAnnualRate: null,
+    };
+  }
+
+  const growthFactor = Math.pow(1 + annualRate, yearsRemaining);
+  const futureValueCurrent = plan.currentAmount * growthFactor;
+
+  const futureValueAdjustments = plan.adjustments.reduce((sum, adjustment) => {
+    const adjustmentDate = new Date(adjustment.date);
+    const adj = new Date(adjustmentDate.getFullYear(), adjustmentDate.getMonth(), adjustmentDate.getDate());
+
+    if (Number.isNaN(adj.getTime())) {
+      return sum;
+    }
+
+    const daysToDeadline = Math.ceil((deadline.getTime() - adj.getTime()) / msPerDay);
+    if (daysToDeadline <= 0) {
+      return sum + adjustment.amount;
+    }
+
+    const yearsToDeadline = daysToDeadline / 365;
+    return sum + adjustment.amount * Math.pow(1 + annualRate, yearsToDeadline);
+  }, 0);
+
+  const projectedWithoutRegularSaving = futureValueCurrent + futureValueAdjustments;
+  const fundingGap = Math.max(0, plan.targetAmount - projectedWithoutRegularSaving);
+
+  const calculateRequiredPeriodicSaving = (periodDays: number) => {
+    const periods = Math.max(1, Math.ceil(daysRemaining / periodDays));
+    const periodRate = Math.pow(1 + annualRate, periodDays / 365) - 1;
+    const factor = periodRate === 0
+      ? periods
+      : (Math.pow(1 + periodRate, periods) - 1) / periodRate;
+
+    return fundingGap / factor;
+  };
+
+  const yearlySaving = calculateRequiredPeriodicSaving(365);
+  const monthlySaving = calculateRequiredPeriodicSaving(30);
+  const dailySaving = calculateRequiredPeriodicSaving(1);
+
+  const evaluateFutureValueWithoutRegular = (rate: number) => {
+    const currentPart = plan.currentAmount * Math.pow(1 + rate, yearsRemaining);
+    const adjustmentPart = plan.adjustments.reduce((sum, adjustment) => {
+      const adjustmentDate = new Date(adjustment.date);
+      const adj = new Date(adjustmentDate.getFullYear(), adjustmentDate.getMonth(), adjustmentDate.getDate());
+      if (Number.isNaN(adj.getTime())) {
+        return sum;
+      }
+      const daysToDeadline = Math.ceil((deadline.getTime() - adj.getTime()) / msPerDay);
+      if (daysToDeadline <= 0) {
+        return sum + adjustment.amount;
+      }
+      return sum + adjustment.amount * Math.pow(1 + rate, daysToDeadline / 365);
+    }, 0);
+
+    return currentPart + adjustmentPart;
+  };
+
+  const baseValue = evaluateFutureValueWithoutRegular(0);
+  let requiredAnnualRate: number | null = null;
+
+  if (plan.targetAmount <= baseValue) {
+    requiredAnnualRate = 0;
+  } else {
+    const maxRate = 2;
+    const maxValue = evaluateFutureValueWithoutRegular(maxRate);
+    if (maxValue >= plan.targetAmount) {
+      let low = 0;
+      let high = maxRate;
+      for (let i = 0; i < 80; i++) {
+        const mid = (low + high) / 2;
+        if (evaluateFutureValueWithoutRegular(mid) >= plan.targetAmount) {
+          high = mid;
+        } else {
+          low = mid;
+        }
+      }
+      requiredAnnualRate = high * 100;
+    }
+  }
+
+  return {
+    daysRemaining,
+    yearsRemaining,
+    futureValueCurrent,
+    futureValueAdjustments,
+    projectedWithoutRegularSaving,
+    fundingGap,
+    yearlySaving,
+    monthlySaving,
+    dailySaving,
+    requiredAnnualRate,
+  };
+};
 
 export default function App() {
   // 基础复利计算状态
@@ -70,6 +234,109 @@ export default function App() {
   // 反推结果状态
   const [calculatedRate, setCalculatedRate] = useState<number | null>(null);
   const [calculatedYears, setCalculatedYears] = useState<number | null>(null);
+
+  // 计划功能状态
+  const [plans, setPlans] = useState<SavingsPlan[]>([createDefaultPlan()]);
+  const [activePlanId, setActivePlanId] = useState<string>('');
+
+  useEffect(() => {
+    const savedPlans = localStorage.getItem('compoundCalculatorPlans');
+    if (!savedPlans) return;
+
+    try {
+      const parsed = JSON.parse(savedPlans) as SavingsPlan[];
+      if (Array.isArray(parsed) && parsed.length > 0) {
+        setPlans(parsed);
+        setActivePlanId(parsed[0].id);
+      }
+    } catch (error) {
+      console.error('Failed to parse plans:', error);
+    }
+  }, []);
+
+  useEffect(() => {
+    localStorage.setItem('compoundCalculatorPlans', JSON.stringify(plans));
+  }, [plans]);
+
+  useEffect(() => {
+    if (!activePlanId && plans.length > 0) {
+      setActivePlanId(plans[0].id);
+    }
+  }, [plans, activePlanId]);
+
+  const activePlan = useMemo(
+    () => plans.find((plan) => plan.id === activePlanId) ?? null,
+    [plans, activePlanId]
+  );
+
+  const activePlanMetrics = useMemo(
+    () => (activePlan ? calculatePlanMetrics(activePlan) : null),
+    [activePlan]
+  );
+
+  const addPlan = () => {
+    const newPlan: SavingsPlan = {
+      ...createDefaultPlan(),
+      id: `${Date.now()}-${Math.random().toString(16).slice(2, 8)}`,
+      name: `计划 ${plans.length + 1}`,
+    };
+
+    setPlans((prev) => [...prev, newPlan]);
+    setActivePlanId(newPlan.id);
+    toast.success('已新增计划');
+  };
+
+  const removePlan = (id: string) => {
+    if (plans.length <= 1) {
+      toast.error('至少保留一个计划');
+      return;
+    }
+
+    const nextPlans = plans.filter((plan) => plan.id !== id);
+    setPlans(nextPlans);
+    if (activePlanId === id) {
+      setActivePlanId(nextPlans[0]?.id ?? '');
+    }
+    toast.success('计划已删除');
+  };
+
+  const updateActivePlan = (patch: Partial<SavingsPlan>) => {
+    if (!activePlanId) return;
+    setPlans((prev) =>
+      prev.map((plan) => (plan.id === activePlanId ? { ...plan, ...patch } : plan))
+    );
+  };
+
+  const addAdjustment = () => {
+    if (!activePlan) return;
+
+    const defaultDate = activePlan.deadline;
+    const newAdjustment: PlanAdjustment = {
+      id: `${Date.now()}-${Math.random().toString(16).slice(2, 8)}`,
+      date: defaultDate,
+      amount: 10000,
+    };
+
+    updateActivePlan({ adjustments: [...activePlan.adjustments, newAdjustment] });
+  };
+
+  const updateAdjustment = (adjustmentId: string, patch: Partial<PlanAdjustment>) => {
+    if (!activePlan) return;
+
+    updateActivePlan({
+      adjustments: activePlan.adjustments.map((adjustment) =>
+        adjustment.id === adjustmentId ? { ...adjustment, ...patch } : adjustment
+      ),
+    });
+  };
+
+  const removeAdjustment = (adjustmentId: string) => {
+    if (!activePlan) return;
+
+    updateActivePlan({
+      adjustments: activePlan.adjustments.filter((adjustment) => adjustment.id !== adjustmentId),
+    });
+  };
 
   // 从本地存储加载历史记录
   useEffect(() => {
@@ -1241,6 +1508,188 @@ ${result.monthlyAddition ? `• 每月定投：¥${result.monthlyAddition.toLoca
             </CardContent>
           </Card>
         )}
+
+        {/* 多目标计划功能 */}
+        <Card className={`mt-6 shadow-xl ${darkMode ? 'bg-gray-800 border-gray-700' : ''}`}>
+          <CardHeader>
+            <div className="flex items-center justify-between gap-3">
+              <CardTitle className={`flex items-center gap-2 ${darkMode ? 'text-white' : ''}`}>
+                <Target className="w-5 h-5 text-blue-600" />
+                目标计划
+              </CardTitle>
+              <Button size="sm" onClick={addPlan}>
+                新增计划
+              </Button>
+            </div>
+          </CardHeader>
+          <CardContent className="space-y-4">
+            <div className="flex flex-wrap gap-2">
+              {plans.map((plan) => (
+                <div key={plan.id} className="flex items-center gap-1">
+                  <Button
+                    size="sm"
+                    variant={activePlanId === plan.id ? 'default' : 'outline'}
+                    onClick={() => setActivePlanId(plan.id)}
+                  >
+                    {plan.name}
+                  </Button>
+                  <Button
+                    size="icon"
+                    variant="ghost"
+                    className="h-8 w-8"
+                    onClick={() => removePlan(plan.id)}
+                    title="删除计划"
+                  >
+                    <Trash2 className="w-4 h-4 text-red-500" />
+                  </Button>
+                </div>
+              ))}
+            </div>
+
+            {activePlan && activePlanMetrics && (
+              <>
+                <div className="grid md:grid-cols-2 gap-4">
+                  <div className="space-y-2">
+                    <Label className={darkMode ? 'text-gray-200' : ''}>计划名称</Label>
+                    <Input
+                      value={activePlan.name}
+                      onChange={(event) => updateActivePlan({ name: event.target.value })}
+                      className={darkMode ? 'bg-gray-700 text-white border-gray-600' : ''}
+                    />
+                  </div>
+                  <div className="space-y-2">
+                    <Label className={darkMode ? 'text-gray-200' : ''}>截至日期</Label>
+                    <Input
+                      type="date"
+                      value={activePlan.deadline}
+                      onChange={(event) => updateActivePlan({ deadline: event.target.value })}
+                      className={darkMode ? 'bg-gray-700 text-white border-gray-600' : ''}
+                    />
+                  </div>
+                  <div className="space-y-2">
+                    <Label className={darkMode ? 'text-gray-200' : ''}>目标金额 (¥)</Label>
+                    <Input
+                      type="number"
+                      value={activePlan.targetAmount}
+                      onChange={(event) => updateActivePlan({ targetAmount: parseFloat(event.target.value) || 0 })}
+                      className={darkMode ? 'bg-gray-700 text-white border-gray-600 placeholder:text-gray-300' : ''}
+                    />
+                  </div>
+                  <div className="space-y-2">
+                    <Label className={darkMode ? 'text-gray-200' : ''}>当前金额 (¥)</Label>
+                    <Input
+                      type="number"
+                      value={activePlan.currentAmount}
+                      onChange={(event) => updateActivePlan({ currentAmount: parseFloat(event.target.value) || 0 })}
+                      className={darkMode ? 'bg-gray-700 text-white border-gray-600 placeholder:text-gray-300' : ''}
+                    />
+                  </div>
+                  <div className="space-y-2 md:col-span-2">
+                    <Label className={darkMode ? 'text-gray-200' : ''}>预期年化利率 (%)</Label>
+                    <Input
+                      type="number"
+                      step="0.01"
+                      value={activePlan.expectedRate}
+                      onChange={(event) => updateActivePlan({ expectedRate: parseFloat(event.target.value) || 0 })}
+                      className={darkMode ? 'bg-gray-700 text-white border-gray-600 placeholder:text-gray-300' : ''}
+                    />
+                  </div>
+                </div>
+
+                <div className={`p-4 rounded-lg border ${darkMode ? 'bg-gray-900/40 border-gray-700' : 'bg-slate-50 border-slate-200'}`}>
+                  <div className="flex items-center justify-between mb-3">
+                    <p className={`font-medium ${darkMode ? 'text-gray-100' : 'text-gray-800'}`}>中间金额变化</p>
+                    <Button size="sm" variant="outline" onClick={addAdjustment}>添加变化</Button>
+                  </div>
+                  {activePlan.adjustments.length === 0 ? (
+                    <p className={`text-sm ${darkMode ? 'text-gray-400' : 'text-gray-500'}`}>暂无中间变化，点击“添加变化”可录入某一天的额外投入或支出（支持负数）。</p>
+                  ) : (
+                    <div className="space-y-3">
+                      {activePlan.adjustments.map((adjustment) => (
+                        <div key={adjustment.id} className="grid grid-cols-1 md:grid-cols-[1fr_1fr_auto] gap-2">
+                          <Input
+                            type="date"
+                            value={adjustment.date}
+                            onChange={(event) => updateAdjustment(adjustment.id, { date: event.target.value })}
+                            className={darkMode ? 'bg-gray-700 text-white border-gray-600' : ''}
+                          />
+                          <Input
+                            type="number"
+                            value={adjustment.amount}
+                            onChange={(event) => updateAdjustment(adjustment.id, { amount: parseFloat(event.target.value) || 0 })}
+                            placeholder="金额（负数表示支出）"
+                            className={darkMode ? 'bg-gray-700 text-white border-gray-600 placeholder:text-gray-300' : ''}
+                          />
+                          <Button
+                            type="button"
+                            variant="ghost"
+                            onClick={() => removeAdjustment(adjustment.id)}
+                            className="md:w-10"
+                          >
+                            <Trash2 className="w-4 h-4 text-red-500" />
+                          </Button>
+                        </div>
+                      ))}
+                    </div>
+                  )}
+                </div>
+
+                <div className="grid md:grid-cols-2 lg:grid-cols-3 gap-3">
+                  <Card className={darkMode ? 'bg-gray-900/40 border-gray-700' : ''}>
+                    <CardContent className="p-4">
+                      <p className={`text-sm ${darkMode ? 'text-gray-400' : 'text-gray-600'}`}>剩余时间</p>
+                      <p className={`text-lg font-semibold ${darkMode ? 'text-white' : ''}`}>{activePlanMetrics.daysRemaining} 天</p>
+                      <p className={`text-xs ${darkMode ? 'text-gray-400' : 'text-gray-500'}`}>{activePlanMetrics.yearsRemaining.toFixed(2)} 年</p>
+                    </CardContent>
+                  </Card>
+                  <Card className={darkMode ? 'bg-gray-900/40 border-gray-700' : ''}>
+                    <CardContent className="p-4">
+                      <p className={`text-sm ${darkMode ? 'text-gray-400' : 'text-gray-600'}`}>预计可达金额</p>
+                      <p className={`text-lg font-semibold ${darkMode ? 'text-white' : ''}`}>{formatMoney(activePlanMetrics.projectedWithoutRegularSaving)}</p>
+                      <p className={`text-xs ${darkMode ? 'text-gray-400' : 'text-gray-500'}`}>当前+中间变化按预期利率增长</p>
+                    </CardContent>
+                  </Card>
+                  <Card className={darkMode ? 'bg-gray-900/40 border-gray-700' : ''}>
+                    <CardContent className="p-4">
+                      <p className={`text-sm ${darkMode ? 'text-gray-400' : 'text-gray-600'}`}>剩余资金缺口</p>
+                      <p className={`text-lg font-semibold ${activePlanMetrics.fundingGap > 0 ? 'text-amber-500' : 'text-green-500'}`}>
+                        {formatMoney(activePlanMetrics.fundingGap)}
+                      </p>
+                      <p className={`text-xs ${darkMode ? 'text-gray-400' : 'text-gray-500'}`}>目标 - 预计可达</p>
+                    </CardContent>
+                  </Card>
+                  <Card className={darkMode ? 'bg-gray-900/40 border-gray-700' : ''}>
+                    <CardContent className="p-4">
+                      <p className={`text-sm ${darkMode ? 'text-gray-400' : 'text-gray-600'}`}>每年需存</p>
+                      <p className={`text-lg font-semibold ${darkMode ? 'text-white' : ''}`}>{formatMoney(activePlanMetrics.yearlySaving)}</p>
+                    </CardContent>
+                  </Card>
+                  <Card className={darkMode ? 'bg-gray-900/40 border-gray-700' : ''}>
+                    <CardContent className="p-4">
+                      <p className={`text-sm ${darkMode ? 'text-gray-400' : 'text-gray-600'}`}>每月需存</p>
+                      <p className={`text-lg font-semibold ${darkMode ? 'text-white' : ''}`}>{formatMoney(activePlanMetrics.monthlySaving)}</p>
+                    </CardContent>
+                  </Card>
+                  <Card className={darkMode ? 'bg-gray-900/40 border-gray-700' : ''}>
+                    <CardContent className="p-4">
+                      <p className={`text-sm ${darkMode ? 'text-gray-400' : 'text-gray-600'}`}>每日需存</p>
+                      <p className={`text-lg font-semibold ${darkMode ? 'text-white' : ''}`}>{formatMoney(activePlanMetrics.dailySaving)}</p>
+                    </CardContent>
+                  </Card>
+                </div>
+
+                <div className={`p-4 rounded-lg border ${darkMode ? 'bg-indigo-900/20 border-indigo-800' : 'bg-indigo-50 border-indigo-200'}`}>
+                  <p className={`text-sm ${darkMode ? 'text-indigo-200' : 'text-indigo-700'}`}>
+                    若不再定期存钱，仅靠当前金额和中间变化，要达到目标所需年化利率：
+                    <span className="font-semibold ml-1">
+                      {activePlanMetrics.requiredAnnualRate === null ? '超过 200%（当前参数不可达）' : `${activePlanMetrics.requiredAnnualRate.toFixed(2)}%`}
+                    </span>
+                  </p>
+                </div>
+              </>
+            )}
+          </CardContent>
+        </Card>
 
         {/* 详细数据表格 */}
         {result && result.yearlyData.length > 0 && (
