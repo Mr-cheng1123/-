@@ -664,7 +664,7 @@ ${result.monthlyAddition ? `• 每月定投：¥${result.monthlyAddition.toLoca
             </CardHeader>
             <CardContent className="space-y-6">
               {(calculationMode === 'target' || calculationMode === 'target-rate' || calculationMode === 'target-years') && (
-                <div className="space-y-2 p-4 bg-blue-50 dark:bg-blue-900/20 rounded-lg border-2 border-blue-200 dark:border-blue-800">
+                <div className={`space-y-2 p-4 rounded-lg border-2 ${darkMode ? 'bg-blue-900/20 border-blue-800' : 'bg-blue-50 border-blue-200'}`}>
                   <Label htmlFor="targetAmount" className={`text-base font-medium ${darkMode ? 'text-white' : ''}`}>
                     目标金额 (¥)
                   </Label>
@@ -674,7 +674,7 @@ ${result.monthlyAddition ? `• 每月定投：¥${result.monthlyAddition.toLoca
                     value={targetAmount}
                     onChange={(e) => setTargetAmount(e.target.value)}
                     placeholder="输入你想达到的目标金额"
-                    className={`text-lg h-12 ${darkMode ? 'bg-gray-700 text-white' : ''}`}
+                    className={`text-lg h-12 ${darkMode ? 'bg-gray-700 text-white border-gray-600 placeholder:text-gray-300' : ''}`}
                   />
                   <Button
                     onClick={() => {
