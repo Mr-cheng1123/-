@@ -844,10 +844,27 @@ ${result.monthlyAddition ? `• 每月定投：¥${result.monthlyAddition.toLoca
   }, []);
 
   return (
-    <div className={`min-h-screen ${darkMode ? 'bg-zinc-950' : 'bg-gradient-to-br from-stone-100 to-neutral-200'} p-4 md:p-8 transition-colors`}>
+    <div className={`relative min-h-screen overflow-hidden ${darkMode ? 'bg-zinc-950' : 'bg-gradient-to-br from-stone-100 via-neutral-100 to-stone-200'} p-4 md:p-8 transition-colors`}>
+      <div className="pointer-events-none absolute inset-0">
+        {darkMode ? (
+          <>
+            <div className="absolute -top-24 -left-20 h-[28rem] w-[28rem] rounded-full bg-zinc-700/20 blur-3xl" />
+            <div className="absolute top-1/3 -right-24 h-[24rem] w-[24rem] rounded-full bg-stone-700/15 blur-3xl" />
+            <div className="absolute bottom-[-8rem] left-1/4 h-[26rem] w-[26rem] rounded-full bg-zinc-600/15 blur-3xl" />
+            <div className="absolute inset-0 bg-[radial-gradient(circle_at_20%_20%,rgba(245,245,244,0.06)_0,rgba(245,245,244,0)_45%),radial-gradient(circle_at_80%_70%,rgba(231,229,228,0.06)_0,rgba(231,229,228,0)_40%)]" />
+          </>
+        ) : (
+          <>
+            <div className="absolute -top-20 -left-16 h-[26rem] w-[26rem] rounded-full bg-stone-500/20 blur-3xl" />
+            <div className="absolute top-1/4 -right-20 h-[22rem] w-[22rem] rounded-full bg-neutral-500/15 blur-3xl" />
+            <div className="absolute bottom-[-7rem] left-1/3 h-[24rem] w-[24rem] rounded-full bg-zinc-500/15 blur-3xl" />
+            <div className="absolute inset-0 bg-[radial-gradient(circle_at_15%_20%,rgba(120,113,108,0.16)_0,rgba(120,113,108,0)_42%),radial-gradient(circle_at_80%_68%,rgba(87,83,78,0.14)_0,rgba(87,83,78,0)_38%)]" />
+          </>
+        )}
+      </div>
       <Toaster position="top-center" />
       
-      <div className="max-w-6xl mx-auto">
+      <div className="relative z-10 max-w-6xl mx-auto">
         {/* 标题栏 */}
         <div className="flex items-center justify-between mb-6">
           <div className="flex items-center gap-3">
