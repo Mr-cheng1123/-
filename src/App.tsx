@@ -62,6 +62,15 @@ interface PlanMetrics {
   requiredAnnualRate: number | null;
 }
 
+interface DetailDataRow {
+  periodIndex: number;
+  label: string;
+  principal: number;
+  interest: number;
+  total: number;
+  periodEarning: number;
+}
+
 const frequencyOptions = [
   { value: '1', label: '每年' },
   { value: '2', label: '每半年' },
@@ -234,6 +243,7 @@ export default function App() {
   // 反推结果状态
   const [calculatedRate, setCalculatedRate] = useState<number | null>(null);
   const [calculatedYears, setCalculatedYears] = useState<number | null>(null);
+  const [detailGranularity, setDetailGranularity] = useState<'year' | 'month' | 'day'>('year');
 
   // 计划功能状态
   const [plans, setPlans] = useState<SavingsPlan[]>([createDefaultPlan()]);
@@ -766,20 +776,82 @@ ${result.monthlyAddition ? `• 每月定投：¥${result.monthlyAddition.toLoca
     }).format(amount);
   };
 
+  const detailRows = useMemo<DetailDataRow[]>(() => {
+    if (!result) return [];
+
+    const principalAmount = result.principal;
+    const annualRate = result.rate / 100;
+    const totalYears = result.years;
+    const compoundsPerYear = result.frequency;
+    const monthlyInvestment = result.monthlyAddition ?? 0;
+    const isInstallment = result.type === 'installment' && monthlyInvestment > 0;
+
+    const totalPeriods = detailGranularity === 'year'
+      ? Math.max(1, Math.round(totalYears))
+      : detailGranularity === 'month'
+        ? Math.max(1, Math.round(totalYears * 12))
+        : Math.max(1, Math.round(totalYears * 365));
+
+    const yearsPerPeriod = totalYears / totalPeriods;
+    const periodRate = Math.pow(1 + annualRate / compoundsPerYear, compoundsPerYear * yearsPerPeriod) - 1;
+
+    const rows: DetailDataRow[] = [];
+    let totalInvested = principalAmount;
+    let totalAmount = principalAmount;
+
+    rows.push({
+      periodIndex: 0,
+      label: detailGranularity === 'year' ? '第0年' : detailGranularity === 'month' ? '第0月' : '第0天',
+      principal: totalInvested,
+      interest: 0,
+      total: totalAmount,
+      periodEarning: 0,
+    });
+
+    for (let period = 1; period <= totalPeriods; period++) {
+      const prevTotal = totalAmount;
+      totalAmount = totalAmount * (1 + periodRate);
+
+      if (isInstallment) {
+        const addition = detailGranularity === 'year'
+          ? monthlyInvestment * 12
+          : detailGranularity === 'month'
+            ? monthlyInvestment
+            : monthlyInvestment / 30;
+
+        totalAmount += addition;
+        totalInvested += addition;
+      }
+
+      const totalInterest = totalAmount - totalInvested;
+
+      rows.push({
+        periodIndex: period,
+        label: detailGranularity === 'year' ? `第${period}年` : detailGranularity === 'month' ? `第${period}月` : `第${period}天`,
+        principal: totalInvested,
+        interest: totalInterest,
+        total: totalAmount,
+        periodEarning: totalAmount - prevTotal,
+      });
+    }
+
+    return rows;
+  }, [result, detailGranularity]);
+
   // 初始计算
   useEffect(() => {
     calculateCompound();
   }, []);
 
   return (
-    <div className={`min-h-screen ${darkMode ? 'bg-gray-900' : 'bg-gradient-to-br from-blue-50 to-indigo-100'} p-4 md:p-8 transition-colors`}>
+    <div className={`min-h-screen ${darkMode ? 'bg-zinc-950' : 'bg-gradient-to-br from-stone-100 to-neutral-200'} p-4 md:p-8 transition-colors`}>
       <Toaster position="top-center" />
       
       <div className="max-w-6xl mx-auto">
         {/* 标题栏 */}
         <div className="flex items-center justify-between mb-6">
           <div className="flex items-center gap-3">
-            <div className="w-12 h-12 bg-blue-600 rounded-xl flex items-center justify-center shadow-lg">
+            <div className="w-12 h-12 bg-zinc-800 rounded-xl flex items-center justify-center shadow-lg">
               <Calculator className="w-6 h-6 text-white" />
             </div>
             <div>
@@ -833,7 +905,7 @@ ${result.monthlyAddition ? `• 每月定投：¥${result.monthlyAddition.toLoca
                             <div className="flex justify-between items-start">
                               <div onClick={() => loadHistory(item)} className="flex-1">
                                 <div className="flex items-center gap-2 mb-1">
-                                  <span className={`text-xs px-2 py-0.5 rounded ${item.type === 'installment' ? 'bg-green-100 text-green-700' : 'bg-blue-100 text-blue-700'}`}>
+                                  <span className={`text-xs px-2 py-0.5 rounded ${item.type === 'installment' ? 'bg-emerald-100 text-emerald-700' : 'bg-stone-200 text-zinc-700'}`}>
                                     {item.type === 'installment' ? '定投' : '复利'}
                                   </span>
                                   <span className={`text-xs ${darkMode ? 'text-gray-400' : 'text-gray-500'}`}>{item.date}</span>
@@ -873,7 +945,7 @@ ${result.monthlyAddition ? `• 每月定投：¥${result.monthlyAddition.toLoca
             <CardHeader>
               <div className="flex items-center justify-between">
                 <CardTitle className={`flex items-center gap-2 ${darkMode ? 'text-white' : ''}`}>
-                  <TrendingUp className="w-5 h-5 text-blue-600" />
+                  <TrendingUp className="w-5 h-5 text-zinc-700" />
                   计算参数
                 </CardTitle>
               </div>
@@ -931,7 +1003,7 @@ ${result.monthlyAddition ? `• 每月定投：¥${result.monthlyAddition.toLoca
             </CardHeader>
             <CardContent className="space-y-6">
               {(calculationMode === 'target' || calculationMode === 'target-rate' || calculationMode === 'target-years') && (
-                <div className={`space-y-2 p-4 rounded-lg border-2 ${darkMode ? 'bg-blue-900/20 border-blue-800' : 'bg-blue-50 border-blue-200'}`}>
+                <div className={`space-y-2 p-4 rounded-lg border-2 ${darkMode ? 'bg-zinc-900/30 border-zinc-700' : 'bg-stone-100 border-stone-300'}`}>
                   <Label htmlFor="targetAmount" className={`text-base font-medium ${darkMode ? 'text-white' : ''}`}>
                     目标金额 (¥)
                   </Label>
@@ -958,11 +1030,11 @@ ${result.monthlyAddition ? `• 每月定投：¥${result.monthlyAddition.toLoca
                     {calculationMode === 'target-years' && '计算所需年限'}
                   </Button>
                   {calculatedRate !== null && calculationMode === 'target-rate' && (
-                    <div className="mt-2 p-3 bg-green-50 dark:bg-green-900/20 rounded border border-green-200 dark:border-green-800">
-                      <p className={`text-sm font-medium ${darkMode ? 'text-green-300' : 'text-green-700'}`}>
+                    <div className="mt-2 p-3 bg-stone-100 dark:bg-zinc-900/30 rounded border border-stone-300 dark:border-zinc-700">
+                      <p className={`text-sm font-medium ${darkMode ? 'text-stone-200' : 'text-zinc-700'}`}>
                         📊 计算结果：年利率 {calculatedRate.toFixed(2)}%
                       </p>
-                      <div className={`text-xs mt-2 space-y-1 ${darkMode ? 'text-green-400' : 'text-green-600'}`}>
+                      <div className={`text-xs mt-2 space-y-1 ${darkMode ? 'text-stone-300' : 'text-zinc-600'}`}>
                         <p>• 月利率：{(calculatedRate / 12).toFixed(4)}%</p>
                         <p>• 周利率：{(calculatedRate / 52).toFixed(4)}%</p>
                         <p>• 日利率：{(calculatedRate / 365).toFixed(4)}%</p>
@@ -970,11 +1042,11 @@ ${result.monthlyAddition ? `• 每月定投：¥${result.monthlyAddition.toLoca
                     </div>
                   )}
                   {calculatedYears !== null && calculationMode === 'target-years' && (
-                    <div className="mt-2 p-3 bg-green-50 dark:bg-green-900/20 rounded border border-green-200 dark:border-green-800">
-                      <p className={`text-sm font-medium ${darkMode ? 'text-green-300' : 'text-green-700'}`}>
+                    <div className="mt-2 p-3 bg-stone-100 dark:bg-zinc-900/30 rounded border border-stone-300 dark:border-zinc-700">
+                      <p className={`text-sm font-medium ${darkMode ? 'text-stone-200' : 'text-zinc-700'}`}>
                         ⏱️ 计算结果：需要 {calculatedYears.toFixed(1)} 年
                       </p>
-                      <div className={`text-xs mt-2 space-y-1 ${darkMode ? 'text-green-400' : 'text-green-600'}`}>
+                      <div className={`text-xs mt-2 space-y-1 ${darkMode ? 'text-stone-300' : 'text-zinc-600'}`}>
                         <p>• 约 {Math.ceil(calculatedYears * 12)} 个月</p>
                         <p>• 约 {Math.ceil(calculatedYears * 52)} 周</p>
                         <p>• 约 {Math.ceil(calculatedYears * 365)} 天</p>
@@ -1197,35 +1269,35 @@ ${result.monthlyAddition ? `• 每月定投：¥${result.monthlyAddition.toLoca
           <div className="space-y-6">
             {/* 核心结果卡片 */}
             {result && (
-              <Card className={`shadow-xl ${darkMode ? 'bg-gradient-to-br from-blue-900 to-indigo-900 border-blue-800' : 'bg-gradient-to-br from-blue-600 to-indigo-700'} text-white`}>
+              <Card className={`shadow-xl ${darkMode ? 'bg-gradient-to-br from-zinc-800 to-stone-900 border-zinc-700' : 'bg-gradient-to-br from-zinc-700 to-stone-800'} text-white`}>
                 <CardContent className="p-6">
                   <div className="grid grid-cols-2 gap-4">
                     <div className="text-center p-4 bg-white/10 rounded-lg">
-                      <p className="text-blue-100 text-sm mb-1">最终金额</p>
+                      <p className="text-stone-300 text-sm mb-1">最终金额</p>
                       <p className="text-2xl md:text-3xl font-bold">
                         ¥{(result.finalAmount / 10000).toFixed(2)}万
                       </p>
-                      <p className="text-blue-100 text-xs mt-1">
+                      <p className="text-stone-300 text-xs mt-1">
                         {formatMoney(result.finalAmount)}
                       </p>
                     </div>
                     <div className="text-center p-4 bg-white/10 rounded-lg">
-                      <p className="text-blue-100 text-sm mb-1">总收益</p>
+                      <p className="text-stone-300 text-sm mb-1">总收益</p>
                       <p className="text-2xl md:text-3xl font-bold text-green-300">
                         ¥{(result.totalInterest / 10000).toFixed(2)}万
                       </p>
-                      <p className="text-blue-100 text-xs mt-1">
+                      <p className="text-stone-300 text-xs mt-1">
                         {formatMoney(result.totalInterest)}
                       </p>
                     </div>
                     <div className="text-center p-4 bg-white/10 rounded-lg">
-                      <p className="text-blue-100 text-sm mb-1">投入本金</p>
+                      <p className="text-stone-300 text-sm mb-1">投入本金</p>
                       <p className="text-xl font-semibold">
                         ¥{(result.totalPrincipal / 10000).toFixed(2)}万
                       </p>
                     </div>
                     <div className="text-center p-4 bg-white/10 rounded-lg">
-                      <p className="text-blue-100 text-sm mb-1">收益率</p>
+                      <p className="text-stone-300 text-sm mb-1">收益率</p>
                       <p className="text-xl font-semibold text-green-300">
                         {((result.totalInterest / result.totalPrincipal) * 100).toFixed(2)}%
                       </p>
@@ -1234,41 +1306,41 @@ ${result.monthlyAddition ? `• 每月定投：¥${result.monthlyAddition.toLoca
 
                   {/* 利率详细信息 */}
                   <div className="mt-4 p-4 bg-white/10 rounded-lg">
-                    <p className="text-sm font-medium text-blue-100 mb-3">📊 利率换算</p>
+                    <p className="text-sm font-medium text-stone-200 mb-3">📊 利率换算</p>
                     <div className="grid grid-cols-2 gap-3 text-sm">
                       <div>
-                        <p className="text-blue-200 text-xs">年利率</p>
+                        <p className="text-stone-300 text-xs">年利率</p>
                         <p className="font-semibold">{result.rate.toFixed(2)}%</p>
                       </div>
                       <div>
-                        <p className="text-blue-200 text-xs">月利率</p>
+                        <p className="text-stone-300 text-xs">月利率</p>
                         <p className="font-semibold">{(result.rate / 12).toFixed(4)}%</p>
                       </div>
                       <div>
-                        <p className="text-blue-200 text-xs">周利率</p>
+                        <p className="text-stone-300 text-xs">周利率</p>
                         <p className="font-semibold">{(result.rate / 52).toFixed(4)}%</p>
                       </div>
                       <div>
-                        <p className="text-blue-200 text-xs">日利率</p>
+                        <p className="text-stone-300 text-xs">日利率</p>
                         <p className="font-semibold">{(result.rate / 365).toFixed(4)}%</p>
                       </div>
                     </div>
                   </div>
 
                   {enableInflation && (
-                    <div className="mt-4 p-4 bg-amber-500/20 border border-amber-400/30 rounded-lg">
+                    <div className="mt-4 p-4 bg-stone-500/20 border border-stone-400/30 rounded-lg">
                       <div className="flex items-center gap-2 mb-2">
-                        <TrendingDown className="w-4 h-4 text-amber-300" />
-                        <p className="text-sm font-medium text-amber-100">通胀调整后的实际购买力</p>
+                        <TrendingDown className="w-4 h-4 text-stone-300" />
+                        <p className="text-sm font-medium text-stone-200">通胀调整后的实际购买力</p>
                       </div>
                       <div className="grid grid-cols-2 gap-3 text-sm">
                         <div>
-                          <p className="text-amber-200">名义金额</p>
+                          <p className="text-stone-300">名义金额</p>
                           <p className="font-semibold">{formatMoney(result.finalAmount)}</p>
                         </div>
                         <div>
-                          <p className="text-amber-200">实际价值</p>
-                          <p className="font-semibold text-amber-300">
+                          <p className="text-stone-300">实际价值</p>
+                          <p className="font-semibold text-stone-200">
                             {formatMoney(calculateWithInflation(result.finalAmount, result.years))}
                           </p>
                         </div>
@@ -1324,8 +1396,8 @@ ${result.monthlyAddition ? `• 每月定投：¥${result.monthlyAddition.toLoca
                         <AreaChart data={result.yearlyData}>
                           <defs>
                             <linearGradient id="colorTotal" x1="0" y1="0" x2="0" y2="1">
-                              <stop offset="5%" stopColor="#3b82f6" stopOpacity={0.8}/>
-                              <stop offset="95%" stopColor="#3b82f6" stopOpacity={0}/>
+                              <stop offset="5%" stopColor="#52525b" stopOpacity={0.8}/>
+                              <stop offset="95%" stopColor="#52525b" stopOpacity={0}/>
                             </linearGradient>
                           </defs>
                           <CartesianGrid strokeDasharray="3 3" stroke={darkMode ? '#374151' : undefined} />
@@ -1346,7 +1418,7 @@ ${result.monthlyAddition ? `• 每月定投：¥${result.monthlyAddition.toLoca
                           <Area
                             type="monotone"
                             dataKey="total"
-                            stroke="#3b82f6"
+                            stroke="#52525b"
                             fillOpacity={1}
                             fill="url(#colorTotal)"
                             name="总资产"
@@ -1378,8 +1450,8 @@ ${result.monthlyAddition ? `• 每月定投：¥${result.monthlyAddition.toLoca
                               paddingAngle={5}
                               dataKey="value"
                             >
-                              <Cell fill="#3b82f6" />
-                              <Cell fill="#10b981" />
+                              <Cell fill="#52525b" />
+                              <Cell fill="#a8a29e" />
                             </Pie>
                             <Tooltip 
                               formatter={(value: number) => formatMoney(value)} 
@@ -1389,11 +1461,11 @@ ${result.monthlyAddition ? `• 每月定投：¥${result.monthlyAddition.toLoca
                         </ResponsiveContainer>
                         <div className="flex flex-col justify-center space-y-3">
                           <div className="flex items-center gap-2">
-                            <div className="w-4 h-4 bg-blue-500 rounded"></div>
+                            <div className="w-4 h-4 bg-zinc-600 rounded"></div>
                             <span className={`text-sm ${darkMode ? 'text-gray-200' : ''}`}>本金: {formatMoney(result.totalPrincipal)}</span>
                           </div>
                           <div className="flex items-center gap-2">
-                            <div className="w-4 h-4 bg-green-500 rounded"></div>
+                            <div className="w-4 h-4 bg-stone-500 rounded"></div>
                             <span className={`text-sm ${darkMode ? 'text-gray-200' : ''}`}>收益: {formatMoney(result.totalInterest)}</span>
                           </div>
                           <div className={`pt-2 border-t ${darkMode ? 'border-gray-700' : ''}`}>
@@ -1410,13 +1482,13 @@ ${result.monthlyAddition ? `• 每月定投：¥${result.monthlyAddition.toLoca
             )}
 
             {/* 复利说明 */}
-            <Card className={`shadow-lg ${darkMode ? 'bg-amber-900/30 border-amber-800' : 'bg-amber-50 border-amber-200'}`}>
+            <Card className={`shadow-lg ${darkMode ? 'bg-stone-900/40 border-stone-700' : 'bg-stone-100 border-stone-300'}`}>
               <CardContent className="p-4">
                 <div className="flex items-start gap-3">
-                  <Info className={`w-5 h-5 ${darkMode ? 'text-amber-400' : 'text-amber-600'} mt-0.5 flex-shrink-0`} />
+                  <Info className={`w-5 h-5 ${darkMode ? 'text-stone-300' : 'text-stone-700'} mt-0.5 flex-shrink-0`} />
                   <div>
-                    <p className={`font-medium ${darkMode ? 'text-amber-100' : 'text-amber-900'} mb-1`}>什么是复利？</p>
-                    <p className={`text-sm ${darkMode ? 'text-amber-200' : 'text-amber-800'}`}>
+                    <p className={`font-medium ${darkMode ? 'text-stone-200' : 'text-stone-900'} mb-1`}>什么是复利？</p>
+                    <p className={`text-sm ${darkMode ? 'text-stone-300' : 'text-stone-700'}`}>
                       复利是指利息也计入本金产生新的利息，俗称"利滚利"。爱因斯坦曾说："复利是世界第八大奇迹"。
                       长期坚持投资，复利效应会让你的财富呈指数级增长。
                     </p>
@@ -1432,7 +1504,7 @@ ${result.monthlyAddition ? `• 每月定投：¥${result.monthlyAddition.toLoca
           <Card className={`mt-6 shadow-xl ${darkMode ? 'bg-gray-800 border-gray-700' : ''}`}>
             <CardHeader>
               <CardTitle className={`flex items-center gap-2 ${darkMode ? 'text-white' : ''}`}>
-                <GitCompare className="w-5 h-5 text-blue-600" />
+                <GitCompare className="w-5 h-5 text-zinc-700" />
                 方案对比 ({compareResults.length}/3)
               </CardTitle>
             </CardHeader>
@@ -1462,7 +1534,7 @@ ${result.monthlyAddition ? `• 每月定投：¥${result.monthlyAddition.toLoca
                         <td className="text-right py-3 px-4">
                           {item.monthlyAddition ? `¥${item.monthlyAddition}` : '-'}
                         </td>
-                        <td className={`text-right py-3 px-4 font-semibold ${darkMode ? 'text-blue-400' : 'text-blue-600'}`}>
+                        <td className={`text-right py-3 px-4 font-semibold ${darkMode ? 'text-stone-300' : 'text-zinc-700'}`}>
                           {formatMoney(item.finalAmount)}
                         </td>
                         <td className={`text-right py-3 px-4 ${darkMode ? 'text-green-400' : 'text-green-600'}`}>
@@ -1500,8 +1572,8 @@ ${result.monthlyAddition ? `• 每月定投：¥${result.monthlyAddition.toLoca
                     <YAxis stroke={darkMode ? '#9ca3af' : undefined} tickFormatter={(value) => `¥${(value / 10000).toFixed(0)}万`} />
                     <Tooltip formatter={(value: number) => formatMoney(value)} />
                     <Legend />
-                    <Bar dataKey="本金" fill="#3b82f6" />
-                    <Bar dataKey="收益" fill="#10b981" />
+                    <Bar dataKey="本金" fill="#52525b" />
+                    <Bar dataKey="收益" fill="#a8a29e" />
                   </BarChart>
                 </ResponsiveContainer>
               </div>
@@ -1514,7 +1586,7 @@ ${result.monthlyAddition ? `• 每月定投：¥${result.monthlyAddition.toLoca
           <CardHeader>
             <div className="flex items-center justify-between gap-3">
               <CardTitle className={`flex items-center gap-2 ${darkMode ? 'text-white' : ''}`}>
-                <Target className="w-5 h-5 text-blue-600" />
+                <Target className="w-5 h-5 text-zinc-700" />
                 目标计划
               </CardTitle>
               <Button size="sm" onClick={addPlan}>
@@ -1678,8 +1750,8 @@ ${result.monthlyAddition ? `• 每月定投：¥${result.monthlyAddition.toLoca
                   </Card>
                 </div>
 
-                <div className={`p-4 rounded-lg border ${darkMode ? 'bg-indigo-900/20 border-indigo-800' : 'bg-indigo-50 border-indigo-200'}`}>
-                  <p className={`text-sm ${darkMode ? 'text-indigo-200' : 'text-indigo-700'}`}>
+                <div className={`p-4 rounded-lg border ${darkMode ? 'bg-zinc-900/30 border-zinc-700' : 'bg-stone-100 border-stone-300'}`}>
+                  <p className={`text-sm ${darkMode ? 'text-stone-300' : 'text-zinc-700'}`}>
                     若不再定期存钱，仅靠当前金额和中间变化，要达到目标所需年化利率：
                     <span className="font-semibold ml-1">
                       {activePlanMetrics.requiredAnnualRate === null ? '超过 200%（当前参数不可达）' : `${activePlanMetrics.requiredAnnualRate.toFixed(2)}%`}
@@ -1692,40 +1764,50 @@ ${result.monthlyAddition ? `• 每月定投：¥${result.monthlyAddition.toLoca
         </Card>
 
         {/* 详细数据表格 */}
-        {result && result.yearlyData.length > 0 && (
+        {result && detailRows.length > 0 && (
           <Card className={`mt-6 shadow-xl ${darkMode ? 'bg-gray-800 border-gray-700' : ''}`}>
             <CardHeader>
-              <CardTitle className={`flex items-center gap-2 ${darkMode ? 'text-white' : ''}`}>
-                逐年收益明细
-                <span className={`text-sm font-normal ${darkMode ? 'text-gray-400' : 'text-gray-500'}`}>
-                  (共{result.years}年)
-                </span>
-              </CardTitle>
+              <div className="flex flex-wrap items-center justify-between gap-3">
+                <CardTitle className={`flex items-center gap-2 ${darkMode ? 'text-white' : ''}`}>
+                  收益明细
+                  <span className={`text-sm font-normal ${darkMode ? 'text-gray-400' : 'text-gray-500'}`}>
+                    ({detailGranularity === 'year' ? `共${Math.max(1, Math.round(result.years))}年` : detailGranularity === 'month' ? `共${Math.max(1, Math.round(result.years * 12))}月` : `共${Math.max(1, Math.round(result.years * 365))}天`})
+                  </span>
+                </CardTitle>
+                <Select value={detailGranularity} onValueChange={(value: 'year' | 'month' | 'day') => setDetailGranularity(value)}>
+                  <SelectTrigger className={`w-[180px] ${darkMode ? 'bg-gray-700 text-white border-gray-600' : ''}`}>
+                    <SelectValue placeholder="选择明细粒度" />
+                  </SelectTrigger>
+                  <SelectContent>
+                    <SelectItem value="year">按年明细</SelectItem>
+                    <SelectItem value="month">按月明细</SelectItem>
+                    <SelectItem value="day">按日明细</SelectItem>
+                  </SelectContent>
+                </Select>
+              </div>
             </CardHeader>
             <CardContent>
-              <div className="overflow-x-auto">
+              <div className="overflow-x-auto max-h-[520px]">
                 <table className="w-full">
                   <thead>
-                    <tr className={`border-b ${darkMode ? 'border-gray-700' : ''}`}>
-                      <th className={`text-left py-3 px-4 ${darkMode ? 'text-gray-300' : ''}`}>年份</th>
+                    <tr className={`border-b sticky top-0 ${darkMode ? 'border-gray-700 bg-gray-800' : 'bg-white'}`}>
+                      <th className={`text-left py-3 px-4 ${darkMode ? 'text-gray-300' : ''}`}>{detailGranularity === 'year' ? '年份' : detailGranularity === 'month' ? '月份' : '日期序号'}</th>
                       <th className={`text-right py-3 px-4 ${darkMode ? 'text-gray-300' : ''}`}>本金累计</th>
                       <th className={`text-right py-3 px-4 ${darkMode ? 'text-gray-300' : ''}`}>收益累计</th>
                       <th className={`text-right py-3 px-4 ${darkMode ? 'text-gray-300' : ''}`}>总资产</th>
-                      <th className={`text-right py-3 px-4 ${darkMode ? 'text-gray-300' : ''}`}>当年收益</th>
+                      <th className={`text-right py-3 px-4 ${darkMode ? 'text-gray-300' : ''}`}>{detailGranularity === 'year' ? '当年收益' : detailGranularity === 'month' ? '当月收益' : '当日收益'}</th>
                     </tr>
                   </thead>
                   <tbody>
-                    {result.yearlyData.filter((_, i) => i % Math.ceil(result.yearlyData.length / 10) === 0 || i === result.yearlyData.length - 1).map((data, index) => {
-                      const prevData = index > 0 ? result.yearlyData[index - 1] : null;
-                      const yearlyInterest = prevData ? data.interest - prevData.interest : 0;
+                    {detailRows.map((data) => {
                       return (
-                        <tr key={data.year} className={`border-b ${darkMode ? 'border-gray-700 hover:bg-gray-700 text-gray-200' : 'hover:bg-gray-50'}`}>
-                          <td className="py-3 px-4">第{data.year}年</td>
+                        <tr key={`${detailGranularity}-${data.periodIndex}`} className={`border-b ${darkMode ? 'border-gray-700 hover:bg-gray-700 text-gray-200' : 'hover:bg-gray-50'}`}>
+                          <td className="py-3 px-4">{data.label}</td>
                           <td className="text-right py-3 px-4">{formatMoney(data.principal)}</td>
                           <td className={`text-right py-3 px-4 ${darkMode ? 'text-green-400' : 'text-green-600'}`}>{formatMoney(data.interest)}</td>
                           <td className="text-right py-3 px-4 font-semibold">{formatMoney(data.total)}</td>
                           <td className={`text-right py-3 px-4 ${darkMode ? 'text-blue-400' : 'text-blue-600'}`}>
-                            {data.year > 0 ? formatMoney(yearlyInterest) : '-'}
+                            {data.periodIndex > 0 ? formatMoney(data.periodEarning) : '-'}
                           </td>
                         </tr>
                       );
