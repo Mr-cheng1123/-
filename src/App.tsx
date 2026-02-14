@@ -9,7 +9,7 @@ import { Switch } from '@/components/ui/switch';
 import { XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer, AreaChart, Area, PieChart, Pie, Cell, BarChart, Bar, Legend } from 'recharts';
 import { Calculator, TrendingUp, History, Trash2, Save, Share2, Info, Target, Download, Moon, Sun, GitCompare, TrendingDown } from 'lucide-react';
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogTrigger } from '@/components/ui/dialog';
-import { ScrollArea } from '@/components/ui/scroll-area';
+import { ScrollArea, ScrollBar } from '@/components/ui/scroll-area';
 import { toast } from 'sonner';
 import { Toaster } from '@/components/ui/sonner';
 
@@ -21,6 +21,11 @@ interface CalculationResult {
   years: number;
   frequency: number;
   monthlyAddition?: number;
+  installmentFrequency?: number;
+  installmentStartYear?: number;
+  installmentEndYear?: number;
+  installmentStartDate?: string;
+  installmentEndDate?: string;
   finalAmount: number;
   totalInterest: number;
   totalPrincipal: number;
@@ -216,6 +221,8 @@ const calculatePlanMetrics = (plan: SavingsPlan): PlanMetrics => {
 };
 
 export default function App() {
+  const todayDateString = new Date().toISOString().slice(0, 10);
+
   // 基础复利计算状态
   const [principal, setPrincipal] = useState<string>('10000');
   const [rate, setRate] = useState<string>('5');
@@ -224,6 +231,9 @@ export default function App() {
   
   // 定投计算状态
   const [monthlyAddition, setMonthlyAddition] = useState<string>('1000');
+  const [installmentFrequency, setInstallmentFrequency] = useState<string>('12');
+  const [installmentStartDate, setInstallmentStartDate] = useState<string>(todayDateString);
+  const [installmentEndDate, setInstallmentEndDate] = useState<string>('');
   const [showInstallment, setShowInstallment] = useState<boolean>(false);
   
   // 结果状态
@@ -244,9 +254,10 @@ export default function App() {
   const [calculatedRate, setCalculatedRate] = useState<number | null>(null);
   const [calculatedYears, setCalculatedYears] = useState<number | null>(null);
   const [detailGranularity, setDetailGranularity] = useState<'year' | 'month' | 'day'>('year');
+  const [trendGranularity, setTrendGranularity] = useState<'year' | 'month'>('year');
 
   // 计划功能状态
-  const [plans, setPlans] = useState<SavingsPlan[]>([createDefaultPlan()]);
+  const [plans, setPlans] = useState<SavingsPlan[]>([]);
   const [activePlanId, setActivePlanId] = useState<string>('');
 
   useEffect(() => {
@@ -296,18 +307,35 @@ export default function App() {
     toast.success('已新增计划');
   };
 
-  const removePlan = (id: string) => {
-    if (plans.length <= 1) {
-      toast.error('至少保留一个计划');
-      return;
-    }
+  const removePlan = (id: string, index: number) => {
+    setPlans((prev) => {
+      if (prev.length <= 1) {
+        setActivePlanId('');
+        toast.success('计划已删除');
+        return [];
+      }
 
-    const nextPlans = plans.filter((plan) => plan.id !== id);
-    setPlans(nextPlans);
-    if (activePlanId === id) {
-      setActivePlanId(nextPlans[0]?.id ?? '');
-    }
-    toast.success('计划已删除');
+      let removedPlanId: string | null = null;
+      let nextPlans = prev.filter((plan, planIndex) => {
+        const shouldRemove = plan.id === id || planIndex === index;
+        if (shouldRemove && removedPlanId === null) {
+          removedPlanId = plan.id;
+        }
+        return !shouldRemove;
+      });
+
+      if (nextPlans.length === prev.length) {
+        removedPlanId = prev[index]?.id ?? null;
+        nextPlans = prev.filter((_, planIndex) => planIndex !== index);
+      }
+
+      if (activePlanId && removedPlanId && activePlanId === removedPlanId) {
+        setActivePlanId(nextPlans[0]?.id ?? '');
+      }
+
+      toast.success('计划已删除');
+      return nextPlans;
+    });
   };
 
   const updateActivePlan = (patch: Partial<SavingsPlan>) => {
@@ -365,6 +393,37 @@ export default function App() {
     localStorage.setItem('compoundCalculatorHistory', JSON.stringify(history));
   }, [history]);
 
+  const parseDateOnly = (dateValue: string) => {
+    if (!dateValue) return null;
+    const date = new Date(dateValue);
+    if (Number.isNaN(date.getTime())) return null;
+    return new Date(date.getFullYear(), date.getMonth(), date.getDate());
+  };
+
+  const formatDateByOffsetYears = (offsetYears: number) => {
+    const baseDate = parseDateOnly(todayDateString) ?? new Date();
+    const resultDate = new Date(baseDate);
+    resultDate.setDate(resultDate.getDate() + Math.round(offsetYears * 365));
+    return resultDate.toISOString().slice(0, 10);
+  };
+
+  const getInstallmentYearBounds = useCallback(() => {
+    const baseDate = parseDateOnly(todayDateString) ?? new Date();
+    const startDate = parseDateOnly(installmentStartDate) ?? baseDate;
+    const endDate = parseDateOnly(installmentEndDate);
+    const msPerDay = 24 * 60 * 60 * 1000;
+
+    const startYears = Math.max(0, (startDate.getTime() - baseDate.getTime()) / msPerDay / 365);
+    const endYearsRaw = endDate ? (endDate.getTime() - baseDate.getTime()) / msPerDay / 365 : Number.POSITIVE_INFINITY;
+
+    return {
+      startYears,
+      endYearsRaw,
+      startDateText: startDate.toISOString().slice(0, 10),
+      endDateText: endDate ? endDate.toISOString().slice(0, 10) : '',
+    };
+  }, [installmentStartDate, installmentEndDate, todayDateString]);
+
   // 计算复利
   const calculateCompound = useCallback(() => {
     const p = parseFloat(principal) || 0;
@@ -372,6 +431,10 @@ export default function App() {
     const t = parseFloat(years) || 0;
     const n = parseInt(frequency) || 12;
     const monthly = parseFloat(monthlyAddition) || 0;
+    const installmentPerYear = parseInt(installmentFrequency) || 12;
+    const { startYears, endYearsRaw, startDateText, endDateText } = getInstallmentYearBounds();
+    const installmentStart = startYears;
+    const installmentEnd = Math.min(t, Math.max(installmentStart, endYearsRaw));
 
     const yearlyData = [];
     let currentPrincipal = p;
@@ -393,11 +456,19 @@ export default function App() {
       
       // 如果启用定投，添加每年的定投金额
       if (showInstallment && monthly > 0) {
-        const yearlyAddition = monthly * 12;
-        // 定投部分的复利计算（简化计算，假设年末投入）
-        const futureValueOfAdditions = yearlyAddition * (Math.pow(1 + r / n, n) - 1) / (r / n);
-        currentPrincipal = amountBeforeAddition + futureValueOfAdditions;
-        totalInvested += yearlyAddition;
+        const periodStart = year - 1;
+        const periodEnd = year;
+        const activeYears = Math.max(0, Math.min(periodEnd, installmentEnd) - Math.max(periodStart, installmentStart));
+        const yearlyAddition = monthly * installmentPerYear * activeYears;
+        if (yearlyAddition > 0) {
+          const futureValueOfAdditions = r > 0
+            ? yearlyAddition * (Math.pow(1 + r / n, n) - 1) / (r / n)
+            : yearlyAddition;
+          currentPrincipal = amountBeforeAddition + futureValueOfAdditions;
+          totalInvested += yearlyAddition;
+        } else {
+          currentPrincipal = amountBeforeAddition;
+        }
       } else {
         currentPrincipal = amountBeforeAddition;
       }
@@ -424,6 +495,11 @@ export default function App() {
       years: t,
       frequency: n,
       monthlyAddition: showInstallment ? monthly : undefined,
+      installmentFrequency: showInstallment ? installmentPerYear : undefined,
+      installmentStartYear: showInstallment ? installmentStart : undefined,
+      installmentEndYear: showInstallment ? installmentEnd : undefined,
+      installmentStartDate: showInstallment ? startDateText : undefined,
+      installmentEndDate: showInstallment ? (endDateText || formatDateByOffsetYears(t)) : undefined,
       finalAmount,
       totalInterest,
       totalPrincipal,
@@ -433,7 +509,7 @@ export default function App() {
 
     setResult(newResult);
     return newResult;
-  }, [principal, rate, years, frequency, monthlyAddition, showInstallment]);
+  }, [principal, rate, years, frequency, monthlyAddition, installmentFrequency, showInstallment, getInstallmentYearBounds]);
 
   // 目标金额反推计算所需本金
   const calculateTargetPrincipal = useCallback(() => {
@@ -442,6 +518,10 @@ export default function App() {
     const t = parseFloat(years) || 0;
     const n = parseInt(frequency) || 12;
     const monthly = parseFloat(monthlyAddition) || 0;
+    const installmentPerYear = parseInt(installmentFrequency) || 12;
+    const { startYears, endYearsRaw } = getInstallmentYearBounds();
+    const installmentStart = startYears;
+    const installmentEnd = Math.min(t, Math.max(installmentStart, endYearsRaw));
 
     if (showInstallment && monthly > 0) {
       // 定投模式：需要迭代计算
@@ -455,10 +535,17 @@ export default function App() {
         
         for (let year = 1; year <= t; year++) {
           currentAmount = currentAmount * Math.pow(1 + r / n, n);
-          const yearlyAddition = monthly * 12;
-          const futureValueOfAdditions = yearlyAddition * (Math.pow(1 + r / n, n) - 1) / (r / n);
-          currentAmount += futureValueOfAdditions;
-          totalInvested += yearlyAddition;
+          const periodStart = year - 1;
+          const periodEnd = year;
+          const activeYears = Math.max(0, Math.min(periodEnd, installmentEnd) - Math.max(periodStart, installmentStart));
+          const yearlyAddition = monthly * installmentPerYear * activeYears;
+          if (yearlyAddition > 0) {
+            const futureValueOfAdditions = r > 0
+              ? yearlyAddition * (Math.pow(1 + r / n, n) - 1) / (r / n)
+              : yearlyAddition;
+            currentAmount += futureValueOfAdditions;
+            totalInvested += yearlyAddition;
+          }
         }
         
         if (Math.abs(currentAmount - target) < 1) {
@@ -476,7 +563,7 @@ export default function App() {
       setPrincipal(requiredPrincipal.toFixed(0));
       toast.success(`需要初始本金约 ¥${requiredPrincipal.toFixed(2)}`);
     }
-  }, [targetAmount, rate, years, frequency, monthlyAddition, showInstallment]);
+  }, [targetAmount, rate, years, frequency, monthlyAddition, installmentFrequency, showInstallment, getInstallmentYearBounds]);
 
   // 反推所需利率
   const calculateTargetRate = useCallback(() => {
@@ -485,32 +572,67 @@ export default function App() {
     const t = parseFloat(years) || 0;
     const n = parseInt(frequency) || 12;
     const monthly = parseFloat(monthlyAddition) || 0;
+    const installmentPerYear = parseInt(installmentFrequency) || 12;
+    const { startYears, endYearsRaw } = getInstallmentYearBounds();
+    const installmentStart = startYears;
+    const installmentEnd = Math.min(t, Math.max(installmentStart, endYearsRaw));
 
     if (p === 0 || target === 0 || t === 0) {
       toast.error('请输入有效的本金、目标金额和年限');
       return;
     }
 
+    if (target <= p && !(showInstallment && monthly > 0)) {
+      toast.error('目标金额必须大于初始本金');
+      return;
+    }
+
+    if (showInstallment && monthly <= 0) {
+      toast.error('启用定投时，请输入有效的定投金额');
+      return;
+    }
+
     if (showInstallment && monthly > 0) {
-      // 定投模式：二分法迭代计算
-      let low = 0;
-      let high = 1; // 最高100%年利率
-      let iterations = 0;
-      const maxIterations = 100;
-      const tolerance = 0.01;
+      // 先检查利率为0时能否达到目标
+      let totalInvestedAtZeroRate = p;
+      for (let year = 1; year <= t; year++) {
+        const periodStart = year - 1;
+        const periodEnd = year;
+        const activeYears = Math.max(0, Math.min(periodEnd, installmentEnd) - Math.max(periodStart, installmentStart));
+        const yearlyAddition = monthly * installmentPerYear * activeYears;
+        totalInvestedAtZeroRate += yearlyAddition;
+      }
       
-      while (iterations < maxIterations && (high - low) > 0.00001) {
+      if (totalInvestedAtZeroRate >= target) {
+        toast.error('定投金额过大，即使利率为0也能达到目标，无需额外收益');
+        return;
+      }
+      
+      // 定投模式：按月精确计算的二分法
+      let low = 0;
+      let high = 2; // 提高上限至200%年利率
+      let iterations = 0;
+      const maxIterations = 200;
+      const tolerance = Math.max(1, target * 0.0001);
+      
+      while (iterations < maxIterations && (high - low) > 0.000001) {
         const midRate = (low + high) / 2;
+        const monthlyRate = midRate / 12; // 年利率转为月利率
         let currentAmount = p;
         
-        for (let year = 1; year <= t; year++) {
-          currentAmount = currentAmount * Math.pow(1 + midRate / n, n);
-          const yearlyAddition = monthly * 12;
-          if (midRate > 0) {
-            const futureValueOfAdditions = yearlyAddition * (Math.pow(1 + midRate / n, n) - 1) / (midRate / n);
-            currentAmount += futureValueOfAdditions;
-          } else {
-            currentAmount += yearlyAddition;
+        // 按月计算，更精确
+        const totalMonths = Math.floor(t * 12);
+        const installmentIntervalMonths = Math.floor(12 / installmentPerYear); // 定投间隔月数
+        
+        for (let month = 1; month <= totalMonths; month++) {
+          // 本金按月复利
+          currentAmount = currentAmount * (1 + monthlyRate);
+          
+          // 判断当月是否需要定投
+          const currentMonthYear = month / 12;
+          const isInstallmentMonth = (month % installmentIntervalMonths === 0);
+          if (currentMonthYear >= installmentStart && currentMonthYear <= installmentEnd && isInstallmentMonth) {
+            currentAmount += monthly;
           }
         }
         
@@ -530,7 +652,19 @@ export default function App() {
         iterations++;
       }
       
-      toast.error('无法计算出合理的利率，请调整参数');
+      // 循环结束后，返回最接近的结果
+      const bestRate = (low + high) / 2;
+      const annualRate = bestRate * 100;
+      
+      // 检查是否达到上限
+      if (annualRate >= 199) {
+        toast.error('所需利率过高（>200%），目标可能无法实现，请调整参数');
+        return;
+      }
+      
+      setCalculatedRate(annualRate);
+      setRate(annualRate.toFixed(2));
+      toast.success(`需要年利率约 ${annualRate.toFixed(2)}%${iterations >= maxIterations ? '（近似值）' : ''}`);
     } else {
       // 一次性投资：直接计算
       // FV = PV * (1 + r/n)^(nt)
@@ -541,7 +675,7 @@ export default function App() {
       setRate(annualRate.toFixed(2));
       toast.success(`需要年利率约 ${annualRate.toFixed(2)}%`);
     }
-  }, [principal, targetAmount, years, frequency, monthlyAddition, showInstallment]);
+  }, [principal, targetAmount, years, frequency, monthlyAddition, installmentFrequency, showInstallment, getInstallmentYearBounds]);
 
   // 反推所需年限
   const calculateTargetYears = useCallback(() => {
@@ -550,6 +684,10 @@ export default function App() {
     const r = (parseFloat(rate) || 0) / 100;
     const n = parseInt(frequency) || 12;
     const monthly = parseFloat(monthlyAddition) || 0;
+    const installmentPerYear = parseInt(installmentFrequency) || 12;
+    const { startYears, endYearsRaw } = getInstallmentYearBounds();
+    const installmentStart = startYears;
+    const installmentEndLimit = Number.isFinite(endYearsRaw) ? Math.max(installmentStart, endYearsRaw) : Number.POSITIVE_INFINITY;
 
     if (p === 0 || target === 0 || r === 0) {
       toast.error('请输入有效的本金、目标金额和利率');
@@ -570,9 +708,16 @@ export default function App() {
         currentAmount = p;
         for (let year = 1; year <= estimatedYears; year++) {
           currentAmount = currentAmount * Math.pow(1 + r / n, n);
-          const yearlyAddition = monthly * 12;
-          const futureValueOfAdditions = yearlyAddition * (Math.pow(1 + r / n, n) - 1) / (r / n);
-          currentAmount += futureValueOfAdditions;
+          const periodStart = year - 1;
+          const periodEnd = year;
+          const activeYears = Math.max(0, Math.min(periodEnd, installmentEndLimit) - Math.max(periodStart, installmentStart));
+          const yearlyAddition = monthly * installmentPerYear * activeYears;
+          if (yearlyAddition > 0) {
+            const futureValueOfAdditions = r > 0
+              ? yearlyAddition * (Math.pow(1 + r / n, n) - 1) / (r / n)
+              : yearlyAddition;
+            currentAmount += futureValueOfAdditions;
+          }
         }
         
         if (currentAmount >= target) {
@@ -594,7 +739,7 @@ export default function App() {
       setYears(Math.ceil(t).toString());
       toast.success(`需要投资约 ${t.toFixed(1)} 年 (${Math.ceil(t)} 年)`);
     }
-  }, [principal, targetAmount, rate, frequency, monthlyAddition, showInstallment]);
+  }, [principal, targetAmount, rate, frequency, monthlyAddition, installmentFrequency, showInstallment, getInstallmentYearBounds]);
 
   // 计算考虑通胀的实际购买力
   const calculateWithInflation = useCallback((amount: number, years: number) => {
@@ -640,7 +785,8 @@ export default function App() {
 初始本金: ¥${result.principal.toLocaleString()}
 投资年限: ${result.years}年
 复利频率: ${frequencyOptions.find(f => f.value === result.frequency.toString())?.label}
-${result.monthlyAddition ? `每月定投: ¥${result.monthlyAddition.toLocaleString()}` : ''}
+${result.monthlyAddition ? `${frequencyOptions.find(f => f.value === (result.installmentFrequency ?? 12).toString())?.label ?? '每月'}定投: ¥${result.monthlyAddition.toLocaleString()}` : ''}
+${result.monthlyAddition ? `定投区间: ${result.installmentStartDate ?? todayDateString} ~ ${result.installmentEndDate ?? formatDateByOffsetYears(result.years)}` : ''}
 
 【利率详情】
 年利率: ${result.rate}%
@@ -704,7 +850,12 @@ ${result.yearlyData.map(data =>
       h.rate === result.rate && 
       h.years === result.years &&
       h.frequency === result.frequency &&
-      h.monthlyAddition === result.monthlyAddition
+      h.monthlyAddition === result.monthlyAddition &&
+      h.installmentFrequency === result.installmentFrequency &&
+      h.installmentStartYear === result.installmentStartYear &&
+      h.installmentEndYear === result.installmentEndYear &&
+      h.installmentStartDate === result.installmentStartDate &&
+      h.installmentEndDate === result.installmentEndDate
     );
     
     if (!exists) {
@@ -729,6 +880,9 @@ ${result.yearlyData.map(data =>
     setFrequency(item.frequency.toString());
     if (item.monthlyAddition) {
       setMonthlyAddition(item.monthlyAddition.toString());
+      setInstallmentFrequency((item.installmentFrequency ?? 12).toString());
+      setInstallmentStartDate(item.installmentStartDate ?? formatDateByOffsetYears(item.installmentStartYear ?? 0));
+      setInstallmentEndDate(item.installmentEndDate ?? (item.installmentEndYear !== undefined ? formatDateByOffsetYears(item.installmentEndYear) : ''));
       setShowInstallment(true);
     } else {
       setShowInstallment(false);
@@ -754,7 +908,8 @@ ${result.yearlyData.map(data =>
 • 月利率：${(result.rate / 12).toFixed(4)}%
 • 日利率：${(result.rate / 365).toFixed(4)}%
 • 投资年限：${result.years}年
-${result.monthlyAddition ? `• 每月定投：¥${result.monthlyAddition.toLocaleString()}` : ''}
+${result.monthlyAddition ? `• ${(frequencyOptions.find(f => f.value === (result.installmentFrequency ?? 12).toString())?.label ?? '每月')}定投：¥${result.monthlyAddition.toLocaleString()}` : ''}
+${result.monthlyAddition ? `• 定投区间：${result.installmentStartDate ?? todayDateString} ~ ${result.installmentEndDate ?? formatDateByOffsetYears(result.years)}` : ''}
 
 — 复利计算器 2026`;
     
@@ -776,6 +931,59 @@ ${result.monthlyAddition ? `• 每月定投：¥${result.monthlyAddition.toLoca
     }).format(amount);
   };
 
+  const trendChartData = useMemo(() => {
+    if (!result) return [];
+    if (trendGranularity === 'year') return result.yearlyData;
+
+    const principalAmount = result.principal;
+    const annualRate = result.rate / 100;
+    const totalYears = result.years;
+    const compoundsPerYear = result.frequency;
+    const monthlyInvestment = result.monthlyAddition ?? 0;
+    const installmentPerYear = result.installmentFrequency ?? 12;
+    const installmentStart = result.installmentStartYear ?? 0;
+    const installmentEnd = result.installmentEndYear ?? totalYears;
+    const isInstallment = result.type === 'installment' && monthlyInvestment > 0;
+
+    const totalPeriods = Math.max(1, Math.round(totalYears * 12));
+    const yearsPerPeriod = totalYears / totalPeriods;
+    const periodRate = Math.pow(1 + annualRate / compoundsPerYear, compoundsPerYear * yearsPerPeriod) - 1;
+
+    const rows: Array<{ year: number; principal: number; interest: number; total: number }> = [];
+    let totalInvested = principalAmount;
+    let totalAmount = principalAmount;
+
+    rows.push({
+      year: 0,
+      principal: totalInvested,
+      interest: 0,
+      total: totalAmount,
+    });
+
+    for (let period = 1; period <= totalPeriods; period++) {
+      totalAmount = totalAmount * (1 + periodRate);
+
+      if (isInstallment) {
+        const periodStart = (period - 1) * yearsPerPeriod;
+        const periodEnd = period * yearsPerPeriod;
+        const activeYears = Math.max(0, Math.min(periodEnd, installmentEnd) - Math.max(periodStart, installmentStart));
+        const addition = monthlyInvestment * installmentPerYear * activeYears;
+        totalAmount += addition;
+        totalInvested += addition;
+      }
+
+      const totalInterest = totalAmount - totalInvested;
+      rows.push({
+        year: period,
+        principal: totalInvested,
+        interest: totalInterest,
+        total: totalAmount,
+      });
+    }
+
+    return rows;
+  }, [result, trendGranularity]);
+
   const detailRows = useMemo<DetailDataRow[]>(() => {
     if (!result) return [];
 
@@ -784,6 +992,9 @@ ${result.monthlyAddition ? `• 每月定投：¥${result.monthlyAddition.toLoca
     const totalYears = result.years;
     const compoundsPerYear = result.frequency;
     const monthlyInvestment = result.monthlyAddition ?? 0;
+    const installmentPerYear = result.installmentFrequency ?? 12;
+    const installmentStart = result.installmentStartYear ?? 0;
+    const installmentEnd = result.installmentEndYear ?? totalYears;
     const isInstallment = result.type === 'installment' && monthlyInvestment > 0;
 
     const totalPeriods = detailGranularity === 'year'
@@ -813,11 +1024,10 @@ ${result.monthlyAddition ? `• 每月定投：¥${result.monthlyAddition.toLoca
       totalAmount = totalAmount * (1 + periodRate);
 
       if (isInstallment) {
-        const addition = detailGranularity === 'year'
-          ? monthlyInvestment * 12
-          : detailGranularity === 'month'
-            ? monthlyInvestment
-            : monthlyInvestment / 30;
+        const periodStart = (period - 1) * yearsPerPeriod;
+        const periodEnd = period * yearsPerPeriod;
+        const activeYears = Math.max(0, Math.min(periodEnd, installmentEnd) - Math.max(periodStart, installmentStart));
+        const addition = monthlyInvestment * installmentPerYear * activeYears;
 
         totalAmount += addition;
         totalInvested += addition;
@@ -844,23 +1054,18 @@ ${result.monthlyAddition ? `• 每月定投：¥${result.monthlyAddition.toLoca
   }, []);
 
   return (
-    <div className={`relative min-h-screen overflow-hidden ${darkMode ? 'bg-zinc-950' : 'bg-gradient-to-br from-stone-100 via-neutral-100 to-stone-200'} p-4 md:p-8 transition-colors`}>
-      <div className="pointer-events-none absolute inset-0">
-        {darkMode ? (
-          <>
-            <div className="absolute -top-24 -left-20 h-[28rem] w-[28rem] rounded-full bg-zinc-700/20 blur-3xl" />
-            <div className="absolute top-1/3 -right-24 h-[24rem] w-[24rem] rounded-full bg-stone-700/15 blur-3xl" />
-            <div className="absolute bottom-[-8rem] left-1/4 h-[26rem] w-[26rem] rounded-full bg-zinc-600/15 blur-3xl" />
-            <div className="absolute inset-0 bg-[radial-gradient(circle_at_20%_20%,rgba(245,245,244,0.06)_0,rgba(245,245,244,0)_45%),radial-gradient(circle_at_80%_70%,rgba(231,229,228,0.06)_0,rgba(231,229,228,0)_40%)]" />
-          </>
-        ) : (
-          <>
-            <div className="absolute -top-20 -left-16 h-[26rem] w-[26rem] rounded-full bg-stone-500/20 blur-3xl" />
-            <div className="absolute top-1/4 -right-20 h-[22rem] w-[22rem] rounded-full bg-neutral-500/15 blur-3xl" />
-            <div className="absolute bottom-[-7rem] left-1/3 h-[24rem] w-[24rem] rounded-full bg-zinc-500/15 blur-3xl" />
-            <div className="absolute inset-0 bg-[radial-gradient(circle_at_15%_20%,rgba(120,113,108,0.16)_0,rgba(120,113,108,0)_42%),radial-gradient(circle_at_80%_68%,rgba(87,83,78,0.14)_0,rgba(87,83,78,0)_38%)]" />
-          </>
-        )}
+    <div className={`relative min-h-screen overflow-hidden ${darkMode ? 'bg-zinc-950' : 'bg-gradient-to-br from-slate-100 via-zinc-50 to-slate-200'} p-4 md:p-8 transition-colors`}>
+      <div className="pointer-events-none fixed inset-0">
+        <div
+          className="absolute inset-0"
+          style={{
+            backgroundImage: 'url("/ink-bg.jpg")',
+            backgroundPosition: 'center center',
+            backgroundRepeat: 'no-repeat',
+            backgroundSize: 'cover',
+            imageRendering: 'auto',
+          }}
+        />
       </div>
       <Toaster position="top-center" />
       
@@ -1169,7 +1374,7 @@ ${result.monthlyAddition ? `• 每月定投：¥${result.monthlyAddition.toLoca
                     <Label htmlFor="installment" className={`text-base font-medium cursor-pointer ${darkMode ? 'text-white' : ''}`}>
                       启用定投
                     </Label>
-                    <p className={`text-sm ${darkMode ? 'text-gray-400' : 'text-gray-500'}`}>每月定期追加投资</p>
+                    <p className={`text-sm ${darkMode ? 'text-gray-400' : 'text-gray-500'}`}>按你选择的频率定期追加投资</p>
                   </div>
                 </div>
                 <Switch
@@ -1182,15 +1387,31 @@ ${result.monthlyAddition ? `• 每月定投：¥${result.monthlyAddition.toLoca
               {/* 定投金额输入 */}
               {showInstallment && (
                 <div className="space-y-2 animate-in slide-in-from-top-2">
+                  <Label htmlFor="installmentFrequency" className={`text-base font-medium ${darkMode ? 'text-gray-200' : ''}`}>
+                    定投频率
+                  </Label>
+                  <Select value={installmentFrequency} onValueChange={setInstallmentFrequency}>
+                    <SelectTrigger id="installmentFrequency" className={`h-12 ${darkMode ? 'bg-gray-700 text-white border-gray-600' : ''}`}>
+                      <SelectValue placeholder="选择定投频率" />
+                    </SelectTrigger>
+                    <SelectContent>
+                      {frequencyOptions.map((option) => (
+                        <SelectItem key={`installment-${option.value}`} value={option.value}>
+                          {option.label}
+                        </SelectItem>
+                      ))}
+                    </SelectContent>
+                  </Select>
+
                   <Label htmlFor="monthlyAddition" className={`text-base font-medium ${darkMode ? 'text-gray-200' : ''}`}>
-                    每月定投金额 (¥)
+                    单次定投金额 (¥)
                   </Label>
                   <Input
                     id="monthlyAddition"
                     type="number"
                     value={monthlyAddition}
                     onChange={(e) => setMonthlyAddition(e.target.value)}
-                    placeholder="请输入每月定投金额"
+                    placeholder="请输入每次定投金额"
                     className={`text-lg h-12 ${darkMode ? 'bg-gray-700 text-white border-gray-600' : ''}`}
                   />
                   <div className="flex gap-2 flex-wrap">
@@ -1204,6 +1425,35 @@ ${result.monthlyAddition ? `• 每月定投：¥${result.monthlyAddition.toLoca
                         ¥{m}
                       </Button>
                     ))}
+                  </div>
+
+                  <div className="grid grid-cols-1 md:grid-cols-2 gap-2">
+                    <div className="space-y-2">
+                      <Label htmlFor="installmentStartDate" className={`text-base font-medium ${darkMode ? 'text-gray-200' : ''}`}>
+                        定投开始日期
+                      </Label>
+                      <Input
+                        id="installmentStartDate"
+                        type="date"
+                        value={installmentStartDate}
+                        onChange={(e) => setInstallmentStartDate(e.target.value)}
+                        className={`text-lg h-12 ${darkMode ? 'bg-gray-700 text-white border-gray-600' : ''}`}
+                      />
+                    </div>
+                    <div className="space-y-2">
+                      <Label htmlFor="installmentEndDate" className={`text-base font-medium ${darkMode ? 'text-gray-200' : ''}`}>
+                        定投结束日期
+                      </Label>
+                      <Input
+                        id="installmentEndDate"
+                        type="date"
+                        min={installmentStartDate || todayDateString}
+                        value={installmentEndDate}
+                        onChange={(e) => setInstallmentEndDate(e.target.value)}
+                        className={`text-lg h-12 ${darkMode ? 'bg-gray-700 text-white border-gray-600' : ''}`}
+                      />
+                      <p className={`text-xs ${darkMode ? 'text-gray-400' : 'text-gray-500'}`}>不选结束日期时，默认持续到投资结束</p>
+                    </div>
                   </div>
                 </div>
               )}
@@ -1406,11 +1656,29 @@ ${result.monthlyAddition ? `• 每月定投：¥${result.monthlyAddition.toLoca
                 <TabsContent value="trend">
                   <Card className={`shadow-lg ${darkMode ? 'bg-gray-800 border-gray-700' : ''}`}>
                     <CardHeader>
-                      <CardTitle className={`text-lg ${darkMode ? 'text-white' : ''}`}>财富增长趋势</CardTitle>
+                      <div className="flex items-center justify-between gap-2">
+                        <CardTitle className={`text-lg ${darkMode ? 'text-white' : ''}`}>财富增长趋势</CardTitle>
+                        <div className="flex gap-2">
+                          <Button
+                            size="sm"
+                            variant={trendGranularity === 'year' ? 'default' : 'outline'}
+                            onClick={() => setTrendGranularity('year')}
+                          >
+                            按年
+                          </Button>
+                          <Button
+                            size="sm"
+                            variant={trendGranularity === 'month' ? 'default' : 'outline'}
+                            onClick={() => setTrendGranularity('month')}
+                          >
+                            按月
+                          </Button>
+                        </div>
+                      </div>
                     </CardHeader>
                     <CardContent>
                       <ResponsiveContainer width="100%" height={250}>
-                        <AreaChart data={result.yearlyData}>
+                        <AreaChart data={trendChartData} margin={{ top: 10, right: 30, left: 0, bottom: 0 }}>
                           <defs>
                             <linearGradient id="colorTotal" x1="0" y1="0" x2="0" y2="1">
                               <stop offset="5%" stopColor="#52525b" stopOpacity={0.8}/>
@@ -1420,7 +1688,8 @@ ${result.monthlyAddition ? `• 每月定投：¥${result.monthlyAddition.toLoca
                           <CartesianGrid strokeDasharray="3 3" stroke={darkMode ? '#374151' : undefined} />
                           <XAxis 
                             dataKey="year" 
-                            tickFormatter={(value) => `第${value}年`}
+                            interval={Math.floor((trendChartData.length - 1) / 6)}
+                            tickFormatter={(value) => trendGranularity === 'year' ? `第${value}年` : `第${value}月`}
                             stroke={darkMode ? '#9ca3af' : undefined}
                           />
                           <YAxis 
@@ -1429,7 +1698,7 @@ ${result.monthlyAddition ? `• 每月定投：¥${result.monthlyAddition.toLoca
                           />
                           <Tooltip 
                             formatter={(value: number) => formatMoney(value)}
-                            labelFormatter={(label) => `第${label}年`}
+                            labelFormatter={(label) => trendGranularity === 'year' ? `第${label}年` : `第${label}月`}
                             contentStyle={darkMode ? { backgroundColor: '#1f2937', border: '1px solid #374151' } : undefined}
                           />
                           <Area
@@ -1613,7 +1882,7 @@ ${result.monthlyAddition ? `• 每月定投：¥${result.monthlyAddition.toLoca
           </CardHeader>
           <CardContent className="space-y-4">
             <div className="flex flex-wrap gap-2">
-              {plans.map((plan) => (
+              {plans.map((plan, index) => (
                 <div key={plan.id} className="flex items-center gap-1">
                   <Button
                     size="sm"
@@ -1626,7 +1895,7 @@ ${result.monthlyAddition ? `• 每月定投：¥${result.monthlyAddition.toLoca
                     size="icon"
                     variant="ghost"
                     className="h-8 w-8"
-                    onClick={() => removePlan(plan.id)}
+                    onClick={() => removePlan(plan.id, index)}
                     title="删除计划"
                   >
                     <Trash2 className="w-4 h-4 text-red-500" />
@@ -1804,8 +2073,8 @@ ${result.monthlyAddition ? `• 每月定投：¥${result.monthlyAddition.toLoca
               </div>
             </CardHeader>
             <CardContent>
-              <div className="overflow-x-auto max-h-[520px]">
-                <table className="w-full">
+              <ScrollArea className="h-[520px] w-full rounded-md">
+                <table className="min-w-[760px] w-full">
                   <thead>
                     <tr className={`border-b sticky top-0 ${darkMode ? 'border-gray-700 bg-gray-800' : 'bg-white'}`}>
                       <th className={`text-left py-3 px-4 ${darkMode ? 'text-gray-300' : ''}`}>{detailGranularity === 'year' ? '年份' : detailGranularity === 'month' ? '月份' : '日期序号'}</th>
@@ -1831,7 +2100,8 @@ ${result.monthlyAddition ? `• 每月定投：¥${result.monthlyAddition.toLoca
                     })}
                   </tbody>
                 </table>
-              </div>
+                <ScrollBar orientation="horizontal" />
+              </ScrollArea>
             </CardContent>
           </Card>
         )}
