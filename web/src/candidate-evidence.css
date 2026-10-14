@@ -1,0 +1,7 @@
+.candidate-raw-rates{max-width:250px;white-space:normal;line-height:1.65}
+.candidate-source-details .candidate-costs dd{white-space:normal;overflow-wrap:anywhere;max-width:65%;line-height:1.7}
+.candidate-coverage{margin:0 22px 14px;padding:10px 13px;border:1px solid #e5ece1;border-radius:7px;font-size:10px;color:#70856a}
+.candidate-coverage summary{cursor:pointer;font-weight:600}.candidate-coverage p{margin-top:8px;line-height:1.8}.candidate-coverage ul{margin:8px 0 0;padding-left:16px}.candidate-coverage li{margin-top:6px}.candidate-coverage li b{margin-right:10px}
+@media(max-width:760px){.candidate-coverage{margin:0 16px 14px}.candidate-source-details .candidate-costs dd{max-width:60%}}
+
+.funding-detail-actions{padding:0 20px 18px;display:flex;justify-content:flex-end}

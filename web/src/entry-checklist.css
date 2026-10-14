@@ -1,0 +1,50 @@
+.entry-check{margin:0 0 16px;border:1px solid #e3e9dc;border-radius:9px;background:#fafcf7;overflow:hidden}
+.entry-check>header{display:flex;gap:11px;align-items:flex-start;padding:14px 16px}
+.entry-check>header>svg{margin-top:2px;flex-shrink:0}
+.entry-check>header b{display:block;font-size:14px;line-height:1.5}
+.entry-check>header p{margin-top:4px;font-size:11px;line-height:1.7;color:#6f7f69}
+.entry-check.ok{border-color:#cfe6d7;background:#f1f9f4}.entry-check.ok>header{color:#16714f}
+.entry-check.blocked{border-color:#efd5d0;background:#fdf6f4}.entry-check.blocked>header{color:#a8453a}
+.entry-check.pending{border-color:#ece3c9;background:#fbf8ee}.entry-check.pending>header{color:#8a7440}
+.entry-check-list{list-style:none;margin:0;padding:0 16px 6px}
+.entry-check-list>li{display:flex;gap:9px;align-items:flex-start;padding:9px 0;border-top:1px solid #efe6e3}
+.entry-check-list>li>svg{margin-top:3px;flex-shrink:0}
+.entry-check-list>li>span{flex:1;min-width:0}
+.entry-check-list>li b{display:block;font-size:12px;line-height:1.6;font-weight:600;overflow-wrap:anywhere}
+.entry-check-list>li em{display:block;font-style:normal;font-size:11px;line-height:1.7;color:#6f6a64;font-variant-numeric:tabular-nums}
+.entry-check-list>li em strong{color:#a8453a}
+.entry-check-list>li small{font-size:10px;color:#9a948d;white-space:nowrap;margin-top:2px}
+.entry-check-list>li.fail>svg{color:#c0483c}.entry-check-list>li.pass>svg{color:#1e9a6e}
+.entry-check-list>li.pass b{font-weight:500;color:#52665a}
+.entry-check-wait{display:flex;gap:6px;align-items:center;margin:0 16px 12px;font-size:11px;color:#8a7440;line-height:1.7}
+.entry-check-before-submit{display:flex;gap:6px;align-items:center;margin:0 16px 12px;font-size:11px;color:#6f7f69;line-height:1.7}
+.entry-check-passed{border-top:1px solid #e4ebdd}
+.entry-check-passed>summary{cursor:pointer;padding:10px 16px;font-size:11px;color:#6f8a63;list-style:none}
+.entry-check-passed>summary::-webkit-details-marker{display:none}
+.entry-check-passed>summary::before{content:'▸ ';}
+.entry-check-passed[open]>summary::before{content:'▾ ';}
+.entry-check-passed .entry-check-list>li{border-top:1px solid #e9f0e3}
+.entry-check-passed .entry-check-list>li em{color:#7d8c78}
+.automatic-funding-entry-status{margin-top:4px}
+.candidate-status-content>.automatic-funding-entry-status{flex-shrink:0;margin-top:3px}
+.entry-check>.automatic-funding-entry-status{margin:0 16px 12px}
+
+/* Detail drawer: header and action bar stay put; only the middle scrolls (the .panel base style hides overflow). */
+.candidate-backdrop .candidate-drawer{display:flex;flex-direction:column;overflow:hidden;max-height:calc(100vh - 40px);height:auto}
+.candidate-backdrop .candidate-drawer{max-height:calc(100dvh - 40px)}
+.candidate-backdrop .candidate-drawer>.section-title{position:static;flex:0 0 auto}
+.candidate-backdrop .candidate-drawer>.candidate-detail-body{flex:1 1 auto;min-height:0;overflow-y:auto;overscroll-behavior:contain;scrollbar-width:thin}
+.candidate-backdrop .candidate-drawer>.candidate-detail-action{flex:0 0 auto;margin:0;padding:12px 21px;border-top:1px solid #e7efdd;background:white}
+.candidate-summary{display:grid;grid-template-columns:repeat(3,minmax(0,1fr));gap:10px;margin:0 0 14px}
+.candidate-summary>div{padding:10px 12px;border:1px solid #e5ece1;border-radius:7px;background:white;min-width:0}
+.candidate-summary span{display:block;font-size:10px;color:#7b8c76;line-height:1.6}
+.candidate-summary strong{display:block;margin-top:3px;font-size:17px;font-variant-numeric:tabular-nums}
+.candidate-fold{border:1px solid #e5ece1;border-radius:8px;margin-bottom:10px;background:white}
+.candidate-fold>summary{cursor:pointer;padding:11px 14px;font-size:12px;font-weight:500;color:#48624f;list-style:none}
+.candidate-fold>summary::-webkit-details-marker{display:none}
+.candidate-fold>summary::before{content:'▸ ';color:#8fa98a}
+.candidate-fold[open]>summary::before{content:'▾ '}
+.candidate-fold>div{padding:0 14px 14px}
+@media(max-width:600px){.candidate-summary{grid-template-columns:1fr}.entry-check>header b{font-size:13px}}
+@media(max-width:760px){.candidate-backdrop .candidate-drawer{max-height:calc(100dvh - 24px)}.candidate-detail-action{flex-wrap:wrap}.candidate-detail-action>span{flex:1 1 100%}}
+@media(max-height:520px){.candidate-backdrop{padding:8px}.candidate-backdrop .candidate-drawer{max-height:calc(100dvh - 16px)}.candidate-drawer>.section-title{padding:10px 14px}.candidate-backdrop .candidate-drawer>.candidate-detail-action{padding:10px 14px}}

@@ -1,0 +1,42 @@
+{
+  "name": "funding-arb",
+  "version": "1.0.0",
+  "private": true,
+  "type": "module",
+  "engines": {
+    "node": ">=22"
+  },
+  "scripts": {
+    "dev": "concurrently -k \"tsx watch src/server.ts\" \"vite --host 127.0.0.1\"",
+    "build": "tsc --noEmit && vite build",
+    "prestart": "node scripts/ensure-local-route.mjs",
+    "start": "tsx src/server.ts",
+    "test": "tsx --test --test-concurrency=2 tests/*.test.ts",
+    "history": "tsx scripts/download-history.ts"
+  },
+  "dependencies": {
+    "ccxt": "^4.5.0",
+    "dotenv": "^17.2.0",
+    "express": "^5.1.0",
+    "http-proxy-agent": "^9.1.0",
+    "https-proxy-agent": "^9.1.0",
+    "lucide-react": "^0.468.0",
+    "react": "^19.1.0",
+    "react-dom": "^19.1.0",
+    "socks-proxy-agent": "^10.1.0",
+    "undici": "^7.29.1",
+    "zod": "^4.0.0"
+  },
+  "devDependencies": {
+    "@playwright/test": "^1.55.0",
+    "@types/express": "^5.0.0",
+    "@types/node": "^24.0.0",
+    "@types/react": "^19.1.0",
+    "@types/react-dom": "^19.1.0",
+    "@vitejs/plugin-react": "^5.0.0",
+    "concurrently": "^9.2.0",
+    "tsx": "^4.20.0",
+    "typescript": "^5.9.0",
+    "vite": "^7.1.0"
+  }
+}
